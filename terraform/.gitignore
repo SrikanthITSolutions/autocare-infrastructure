@@ -1,0 +1,28 @@
+# Local .terraform directories
+**/.terraform/*
+
+# Terraform lock file is intentionally kept (commit .terraform.lock.hcl)
+# to pin provider versions across the team.
+
+# Terraform state files (we use a remote S3 backend - these should never be local)
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Backend configuration - contains bucket/account details, not secret but
+# kept environment-specific and out of version control by convention
+backend.hcl
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc
+
+# OS / editor
+.DS_Store

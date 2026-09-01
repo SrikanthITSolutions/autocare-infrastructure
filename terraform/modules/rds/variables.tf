@@ -1,0 +1,126 @@
+variable "project" {
+  description = "Project name used for resource naming and tagging"
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment (e.g. dev, prod)"
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID the database is deployed into"
+  type        = string
+}
+
+variable "db_subnet_ids" {
+  description = "Private database subnet IDs for the DB subnet group"
+  type        = list(string)
+}
+
+variable "allowed_security_group_ids" {
+  description = "Security group IDs (e.g. the EKS cluster/node security group) allowed to reach MySQL on port 3306"
+  type        = list(string)
+}
+
+variable "engine_version" {
+  description = "MySQL engine version"
+  type        = string
+  default     = "8.0.39"
+}
+
+variable "instance_class" {
+  description = "RDS instance class"
+  type        = string
+  default     = "db.t3.medium"
+}
+
+variable "allocated_storage" {
+  description = "Initial allocated storage (GiB)"
+  type        = number
+  default     = 50
+}
+
+variable "max_allocated_storage" {
+  description = "Upper limit (GiB) for RDS storage autoscaling"
+  type        = number
+  default     = 200
+}
+
+variable "storage_type" {
+  description = "RDS storage type"
+  type        = string
+  default     = "gp3"
+}
+
+variable "db_name" {
+  description = "Initial database name"
+  type        = string
+  default     = "autocare"
+}
+
+variable "master_username" {
+  description = "Master username for the database (the password is managed by AWS Secrets Manager, never set here)"
+  type        = string
+  default     = "autocare_admin"
+}
+
+variable "multi_az" {
+  description = "Enable Multi-AZ deployment for high availability (recommended for production)"
+  type        = bool
+  default     = true
+}
+
+variable "backup_retention_period" {
+  description = "Number of days to retain automated backups"
+  type        = number
+  default     = 7
+}
+
+variable "backup_window" {
+  description = "Preferred backup window (UTC)"
+  type        = string
+  default     = "03:00-04:00"
+}
+
+variable "maintenance_window" {
+  description = "Preferred maintenance window (UTC)"
+  type        = string
+  default     = "mon:04:30-mon:05:30"
+}
+
+variable "deletion_protection" {
+  description = "Enable deletion protection (should be true in production)"
+  type        = bool
+  default     = true
+}
+
+variable "skip_final_snapshot" {
+  description = "Skip creating a final snapshot on deletion (should be false in production)"
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_interval" {
+  description = "Enhanced monitoring interval in seconds (0 disables enhanced monitoring)"
+  type        = number
+  default     = 60
+}
+
+variable "performance_insights_enabled" {
+  description = "Enable Performance Insights"
+  type        = bool
+  default     = true
+}
+
+variable "apply_immediately" {
+  description = "Apply changes immediately instead of during the next maintenance window"
+  type        = bool
+  default     = false
+}
+
+variable "tags" {
+  description = "Common tags applied to all resources"
+  type        = map(string)
+  default     = {}
+}
