@@ -234,7 +234,43 @@ false` by default — RDS deletion protection must be turned off (via
 `terraform destroy` can succeed, which is intentional friction for a
 production database.
 
-## 8. Security summary
+## 8. Jenkins infrastructure pipeline
+
+A `Jenkinsfile` at the repository root drives Terraform for both
+environments — it provisions/updates/tears down the AWS foundation described
+in this README. It does **not** build or deploy the AutoCare application;
+that is a separate pipeline that runs against the infrastructure this one
+creates.
+
+Stages: checkout → destroy-confirmation guard (destroy only) → tool
+versions → `terraform fmt -check` → AWS identity check → `terraform init`
+(remote backend) → `terraform validate` → `tfsec` security scan (soft-fail,
+skipped if not installed) → `terraform plan` → publish the plan as a build
+artifact → manual approval gate → `terraform apply` / `terraform destroy` →
+capture `terraform output -json` as an artifact → post-apply sanity check
+(`aws eks update-kubeconfig` + `kubectl get nodes`).
+
+Before running it, configure in Jenkins:
+
+- **Credential `aws-autocare-creds`** — AWS credentials (access key/secret or
+  an assumed role) scoped to what this Terraform needs (VPC/EKS/RDS/ECR/
+  IAM/CloudWatch/S3/SNS). This is the only place AWS access is granted; the
+  Jenkinsfile never contains credentials itself.
+- **Credential `autocare-tf-state-bucket`** — a "Secret text" credential
+  holding the `state_bucket_name` output from `terraform/bootstrap` (see
+  Section 5). Not sensitive, but keeping it in Jenkins rather than the
+  repository lets the same Jenkinsfile target different AWS accounts.
+- **Plugins**: Pipeline, Credentials Binding, AnsiColor.
+- **Agent tooling**: `terraform` (≥ 1.10.0), `aws-cli` v2, `kubectl`, and
+  optionally `tfsec`.
+
+Run it with the `ENVIRONMENT` (`dev`/`prod`) and `ACTION`
+(`plan`/`apply`/`destroy`) build parameters. `apply` and `destroy` both stop
+at a manual approval gate (the `AUTO_APPROVE` parameter only ever skips it
+for `apply` on `dev`); `destroy` additionally requires the `CONFIRM_DESTROY`
+parameter to exactly match `destroy-<environment>` before anything runs.
+
+## 9. Security summary
 
 - No public subnets contain EKS nodes or RDS — only NAT Gateways and the
   future ALB live there.
@@ -251,11 +287,12 @@ production database.
 - VPC Flow Logs and EKS control-plane logs are shipped to CloudWatch for
   audit and incident response.
 
-## 9. What's intentionally NOT included yet
+## 10. What's intentionally NOT included yet
 
 - Kubernetes manifests/Helm values for the AutoCare Deployment, Service, and
   Ingress, or the AWS Load Balancer Controller Helm release itself.
-- The Jenkins server and its pipeline definition.
+- The Jenkins server itself (this repo only provides the pipeline definition
+  that runs on it — see Section 8).
 - Route 53 hosted zone / DNS records (bring your own zone and point it at the
   ALB's DNS name once the Ingress is created).
 
