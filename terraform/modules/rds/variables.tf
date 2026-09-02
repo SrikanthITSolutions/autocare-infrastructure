@@ -24,9 +24,9 @@ variable "allowed_security_group_ids" {
 }
 
 variable "engine_version" {
-  description = "MySQL engine version"
+  description = "MySQL engine version. Major-version-only (e.g. \"8.0\") is recommended over pinning a specific minor version - AWS periodically retires old minor versions, which breaks a hard pin; major-version-only lets RDS resolve to whatever minor version is currently available."
   type        = string
-  default     = "8.0.39"
+  default     = "8.0"
 }
 
 variable "instance_class" {

@@ -30,7 +30,7 @@ log_retention_days          = 30
 # ---------------------------------------------------------------------------
 # RDS - single-AZ, small instance, protections relaxed for easy teardown
 # ---------------------------------------------------------------------------
-rds_engine_version               = "8.0.39"
+rds_engine_version               = "8.0"
 rds_instance_class               = "db.t3.micro" # Free Tier eligible RDS class on this account
 rds_allocated_storage            = 20            # Free Tier RDS storage cap is 20 GiB
 rds_max_allocated_storage        = 100

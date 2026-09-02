@@ -143,7 +143,7 @@ variable "log_retention_days" {
 variable "rds_engine_version" {
   description = "MySQL engine version"
   type        = string
-  default     = "8.0.39"
+  default     = "8.0"
 }
 
 variable "rds_instance_class" {

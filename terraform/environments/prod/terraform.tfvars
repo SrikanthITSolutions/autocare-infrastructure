@@ -30,7 +30,7 @@ log_retention_days          = 180
 # ---------------------------------------------------------------------------
 # RDS - Multi-AZ, deletion protection, longer backup retention
 # ---------------------------------------------------------------------------
-rds_engine_version               = "8.0.39"
+rds_engine_version               = "8.0"
 rds_instance_class               = "db.r6g.large"
 rds_allocated_storage            = 100
 rds_max_allocated_storage        = 500
