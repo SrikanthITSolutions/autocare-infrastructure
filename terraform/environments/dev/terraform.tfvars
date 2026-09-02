@@ -19,7 +19,7 @@ single_nat_gateway       = true
 eks_endpoint_private_access = true
 eks_endpoint_public_access  = true
 eks_public_access_cidrs     = ["0.0.0.0/0"]
-node_instance_types         = ["t3.medium"]
+node_instance_types         = ["t3.small"] # this AWS account is Free Tier restricted - t3.medium was rejected; confirmed free-tier-eligible types here: t3.micro, t3.small, t4g.micro, t4g.small
 node_capacity_type          = "ON_DEMAND"
 node_disk_size              = 20
 node_desired_size           = 2
@@ -31,8 +31,8 @@ log_retention_days          = 30
 # RDS - single-AZ, small instance, protections relaxed for easy teardown
 # ---------------------------------------------------------------------------
 rds_engine_version               = "8.0.39"
-rds_instance_class               = "db.t3.medium"
-rds_allocated_storage            = 50
+rds_instance_class               = "db.t3.micro" # Free Tier eligible RDS class on this account
+rds_allocated_storage            = 20            # Free Tier RDS storage cap is 20 GiB
 rds_max_allocated_storage        = 100
 rds_storage_type                 = "gp3"
 rds_db_name                      = "autocare"
