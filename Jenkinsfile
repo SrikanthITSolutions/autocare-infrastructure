@@ -19,10 +19,13 @@
 //                               manage VPC/EKS/RDS/ECR/IAM/CloudWatch/S3/SNS.
 //                               NEVER hard-code these - this is the only
 //                               place AWS access is granted to the pipeline.
-//   - "autocare-tf-state-bucket" Secret text credential holding the S3
-//                               bucket name created by terraform/bootstrap
-//                               (not sensitive, but kept out of source so
-//                               the same Jenkinsfile works in any account).
+//
+// The remote state S3 bucket (autocare-terraform-state-<account-id>) needs
+// no separate credential or manual bootstrap step - the "Ensure Remote
+// State Backend" stage below creates it automatically on first run (via
+// plain AWS CLI calls, since Terraform can't create the bucket it stores
+// its own state in). terraform/bootstrap/ still exists as an optional
+// pure-Terraform alternative for anyone bootstrapping outside Jenkins.
 //
 // Agent requirements: terraform (>= 1.10.0), aws-cli v2, kubectl, helm v3.
 // Optionally tfsec for the security-scan stage (the pipeline skips it
@@ -74,7 +77,7 @@ pipeline {
         TF_INPUT           = 'false'
         AWS_DEFAULT_REGION = 'us-east-1'
         TF_WORKING_DIR     = "terraform/environments/${params.ENVIRONMENT}"
-        TF_STATE_BUCKET    = credentials('autocare-tf-state-bucket')
+        TF_STATE_KEY       = "${params.ENVIRONMENT}/terraform.tfstate"
     }
 
     stages {
@@ -121,7 +124,45 @@ pipeline {
         stage('AWS Identity Check') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
+                    script {
+                        env.AWS_ACCOUNT_ID = sh(
+                            script: 'aws sts get-caller-identity --query Account --output text',
+                            returnStdout: true
+                        ).trim()
+                        env.TF_STATE_BUCKET = "autocare-terraform-state-${env.AWS_ACCOUNT_ID}"
+                    }
                     sh 'aws sts get-caller-identity'
+                }
+            }
+        }
+
+        stage('Ensure Remote State Backend') {
+            // Creates the S3 state bucket on first run if it doesn't exist yet -
+            // no separate manual "terraform/bootstrap apply" step required.
+            // Idempotent: safe to run on every build.
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
+                    sh '''
+                        if aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+                            echo "State bucket $TF_STATE_BUCKET already exists"
+                        else
+                            echo "Creating state bucket $TF_STATE_BUCKET"
+                            if [ "$AWS_DEFAULT_REGION" = "us-east-1" ]; then
+                                aws s3api create-bucket --bucket "$TF_STATE_BUCKET" --region "$AWS_DEFAULT_REGION"
+                            else
+                                aws s3api create-bucket --bucket "$TF_STATE_BUCKET" --region "$AWS_DEFAULT_REGION" \
+                                    --create-bucket-configuration LocationConstraint="$AWS_DEFAULT_REGION"
+                            fi
+                            aws s3api put-bucket-versioning --bucket "$TF_STATE_BUCKET" \
+                                --versioning-configuration Status=Enabled
+                            aws s3api put-bucket-encryption --bucket "$TF_STATE_BUCKET" \
+                                --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+                            aws s3api put-public-access-block --bucket "$TF_STATE_BUCKET" \
+                                --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+                            aws s3api put-bucket-lifecycle-configuration --bucket "$TF_STATE_BUCKET" \
+                                --lifecycle-configuration '{"Rules":[{"ID":"expire-old-state-versions","Status":"Enabled","Filter":{},"NoncurrentVersionExpiration":{"NoncurrentDays":90}}]}'
+                        fi
+                    '''
                 }
             }
         }
@@ -130,14 +171,14 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
                     dir(env.TF_WORKING_DIR) {
-                        sh """
+                        sh '''
                             terraform init \
-                              -backend-config="bucket=${TF_STATE_BUCKET}" \
-                              -backend-config="key=${params.ENVIRONMENT}/terraform.tfstate" \
-                              -backend-config="region=${AWS_DEFAULT_REGION}" \
+                              -backend-config="bucket=$TF_STATE_BUCKET" \
+                              -backend-config="key=$TF_STATE_KEY" \
+                              -backend-config="region=$AWS_DEFAULT_REGION" \
                               -backend-config="encrypt=true" \
                               -backend-config="use_lockfile=true"
-                        """
+                        '''
                     }
                 }
             }

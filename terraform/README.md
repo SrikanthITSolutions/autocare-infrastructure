@@ -187,6 +187,16 @@ no DynamoDB table.
 
 ## 5. One-time setup: remote state backend
 
+**Via Jenkins (recommended, no manual step):** the pipeline's "Ensure Remote
+State Backend" stage creates `autocare-terraform-state-<account-id>`
+automatically on first run, via plain AWS CLI calls (`terraform init` can't
+create the bucket it stores its own state in, so this has to happen one
+level below Terraform either way). Nothing to configure - just run the
+pipeline.
+
+**Running Terraform locally instead of via Jenkins?** Use the standalone
+`terraform/bootstrap/` module once:
+
 ```bash
 cd terraform/bootstrap
 terraform init
@@ -264,11 +274,13 @@ that is a separate pipeline that runs against the infrastructure this one
 creates.
 
 Stages: checkout → destroy-confirmation guard (destroy only) → tool
-versions → `terraform fmt -check` → AWS identity check → `terraform init`
-(remote backend) → `terraform validate` → `tfsec` security scan (soft-fail,
-skipped if not installed) → `terraform plan` → publish the plan as a build
-artifact → manual approval gate → `terraform apply` / `terraform destroy` →
-capture `terraform output -json` as an artifact → post-apply sanity check
+versions → `terraform fmt -check` → AWS identity check → **ensure remote
+state backend** (creates `autocare-terraform-state-<account-id>` if it
+doesn't exist yet - no manual bootstrap step) → `terraform init` (remote
+backend) → `terraform validate` → `tfsec` security scan (soft-fail, skipped
+if not installed) → `terraform plan` → publish the plan as a build artifact
+→ manual approval gate → `terraform apply` / `terraform destroy` → capture
+`terraform output -json` as an artifact → post-apply sanity check
 (`aws eks update-kubeconfig` + `kubectl get nodes`) → **install cluster
 add-ons** (on `apply` only): AWS Load Balancer Controller, Secrets Store CSI
 Driver + its AWS provider, Metrics Server, and the `autocare` namespace —
@@ -280,13 +292,12 @@ Before running it, configure in Jenkins:
 
 - **Credential `aws-autocare-creds`** — AWS credentials (access key/secret or
   an assumed role) scoped to what this Terraform needs (VPC/EKS/RDS/ECR/
-  IAM/CloudWatch/S3/SNS/SSM). This is the only place AWS access is granted;
-  the Jenkinsfile never contains credentials itself.
-- **Credential `autocare-tf-state-bucket`** — a "Secret text" credential
-  holding the `state_bucket_name` output from `terraform/bootstrap` (see
-  Section 5). Not sensitive, but keeping it in Jenkins rather than the
-  repository lets the same Jenkinsfile target different AWS accounts.
-- **Plugins**: Pipeline, Credentials Binding, AnsiColor.
+  IAM/CloudWatch/S3/SNS/SSM). This is the only credential the pipeline
+  needs; the Jenkinsfile never contains credentials itself, and no separate
+  credential is needed for the state bucket - its name is derived at
+  runtime from the account ID.
+- **Plugins**: Pipeline, Credentials Binding, AWS Credentials, AnsiColor,
+  Timestamper.
 - **Agent tooling**: `terraform` (≥ 1.10.0), `aws-cli` v2, `kubectl`, `helm`
   v3, and optionally `tfsec`.
 
