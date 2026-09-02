@@ -71,9 +71,9 @@ variable "single_nat_gateway" {
 # ---------------------------------------------------------------------------
 
 variable "kubernetes_version" {
-  description = "Kubernetes version for the EKS control plane"
+  description = "Kubernetes version for the EKS control plane. Leave null to use AWS's current default version. Pin to a specific version for reproducibility once you've picked one you're ready to support the upgrade cadence for."
   type        = string
-  default     = "1.30"
+  default     = null
 }
 
 variable "eks_endpoint_private_access" {

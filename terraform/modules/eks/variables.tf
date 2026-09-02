@@ -14,9 +14,9 @@ variable "cluster_name" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version for the EKS control plane"
+  description = "Kubernetes version for the EKS control plane. Leave null to use whatever AWS currently defaults new EKS clusters to - avoids the cluster/node-group AMI pairing breaking every time AWS deprecates an old version."
   type        = string
-  default     = "1.30"
+  default     = null
 }
 
 variable "vpc_id" {

@@ -16,7 +16,6 @@ single_nat_gateway       = true
 # EKS - small node group, public endpoint open for teaching convenience
 # (restrict eks_public_access_cidrs to your IP/VPN in any shared environment)
 # ---------------------------------------------------------------------------
-kubernetes_version          = "1.30"
 eks_endpoint_private_access = true
 eks_endpoint_public_access  = true
 eks_public_access_cidrs     = ["0.0.0.0/0"]
@@ -39,7 +38,7 @@ rds_storage_type                 = "gp3"
 rds_db_name                      = "autocare"
 rds_master_username              = "autocare_admin"
 rds_multi_az                     = false
-rds_backup_retention_period      = 7
+rds_backup_retention_period      = 1 # AWS Free Tier / restricted-plan accounts cap this low; raise once the account plan is upgraded
 rds_deletion_protection          = false
 rds_skip_final_snapshot          = true
 rds_monitoring_interval          = 60

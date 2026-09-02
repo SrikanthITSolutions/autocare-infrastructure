@@ -16,7 +16,6 @@ single_nat_gateway       = false
 # EKS - larger nodes, restrict the public API endpoint to trusted CIDRs
 # (your office/VPN CIDR and your CI/CD egress IPs) before applying.
 # ---------------------------------------------------------------------------
-kubernetes_version          = "1.30"
 eks_endpoint_private_access = true
 eks_endpoint_public_access  = true
 eks_public_access_cidrs     = ["203.0.113.0/24"] # TODO: replace with real trusted CIDRs
