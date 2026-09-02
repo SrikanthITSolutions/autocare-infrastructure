@@ -40,14 +40,19 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_security_group_rule" "rds_ingress_mysql" {
-  for_each = toset(var.allowed_security_group_ids)
+  # count instead of for_each: the security group IDs in
+  # allowed_security_group_ids aren't known until apply (they come from a
+  # freshly created EKS cluster), and for_each requires known *keys* even
+  # when it's fine with unknown values - count only needs a known *length*,
+  # which this list already has at plan time.
+  count = length(var.allowed_security_group_ids)
 
   type                     = "ingress"
   from_port                = 3306
   to_port                  = 3306
   protocol                 = "tcp"
   security_group_id        = aws_security_group.rds.id
-  source_security_group_id = each.value
+  source_security_group_id = var.allowed_security_group_ids[count.index]
   description              = "MySQL access from EKS application tier"
 }
 

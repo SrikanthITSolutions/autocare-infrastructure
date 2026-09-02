@@ -151,9 +151,13 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "nat_error_port_allocation" {
-  for_each = toset(var.nat_gateway_ids)
+  # count instead of for_each: NAT Gateway IDs aren't known until apply on a
+  # fresh VPC, and for_each requires known *keys* even when unknown values
+  # are fine - count only needs a known *length*, which is already
+  # determined by single_nat_gateway/AZ count at plan time.
+  count = length(var.nat_gateway_ids)
 
-  alarm_name          = "${local.name}-nat-${each.value}-port-allocation-errors"
+  alarm_name          = "${local.name}-nat-${count.index}-port-allocation-errors"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "ErrorPortAllocation"
@@ -161,12 +165,12 @@ resource "aws_cloudwatch_metric_alarm" "nat_error_port_allocation" {
   period              = 300
   statistic           = "Sum"
   threshold           = 0
-  alarm_description   = "NAT Gateway ${each.value} is running out of ports - consider adding NAT Gateways"
+  alarm_description   = "NAT Gateway ${var.nat_gateway_ids[count.index]} is running out of ports - consider adding NAT Gateways"
   alarm_actions       = [aws_sns_topic.alarms.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = {
-    NatGatewayId = each.value
+    NatGatewayId = var.nat_gateway_ids[count.index]
   }
 
   tags = var.tags
