@@ -28,7 +28,12 @@ output "db_security_group_id" {
   value       = aws_security_group.rds.id
 }
 
-output "master_user_secret_arn" {
-  description = "ARN of the AWS Secrets Manager secret holding the database master credentials"
-  value       = aws_db_instance.this.master_user_secret[0].secret_arn
+output "app_secret_arn" {
+  description = "ARN of the AWS Secrets Manager secret holding DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD/REMEMBER_ME_KEY, consumed by the AutoCare Helm chart's SecretProviderClass"
+  value       = aws_secretsmanager_secret.app.arn
+}
+
+output "app_secret_name" {
+  description = "Name of the AWS Secrets Manager secret (autocare/<environment>/database)"
+  value       = aws_secretsmanager_secret.app.name
 }

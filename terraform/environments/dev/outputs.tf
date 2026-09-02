@@ -69,12 +69,22 @@ output "rds_db_name" {
   value       = module.rds.db_name
 }
 
-output "rds_master_user_secret_arn" {
-  description = "AWS Secrets Manager secret ARN holding the RDS master credentials"
-  value       = module.rds.master_user_secret_arn
+output "app_secret_arn" {
+  description = "AWS Secrets Manager secret ARN holding DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD/REMEMBER_ME_KEY (also published to SSM at /autocare/<env>/app_secret_arn)"
+  value       = module.rds.app_secret_arn
+}
+
+output "app_irsa_role_arn" {
+  description = "IAM role ARN for the AutoCare pod's ServiceAccount to assume via IRSA when reading the app secret (also published to SSM at /autocare/<env>/app_irsa_role_arn) - set this as the serviceAccount.annotations.\"eks.amazonaws.com/role-arn\" Helm value"
+  value       = aws_iam_role.app_secrets.arn
 }
 
 output "alarms_sns_topic_arn" {
   description = "SNS topic ARN used for infrastructure CloudWatch alarms"
   value       = module.monitoring.sns_topic_arn
+}
+
+output "ssm_parameter_path" {
+  description = "SSM Parameter Store path prefix under which all cross-repo runtime configuration for this environment is published"
+  value       = "/autocare/${var.environment}"
 }

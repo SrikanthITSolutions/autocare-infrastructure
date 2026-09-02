@@ -67,6 +67,11 @@ module "eks" {
   tags = local.common_tags
 }
 
+resource "random_password" "remember_me_key" {
+  length  = 48
+  special = false
+}
+
 module "rds" {
   source = "../../modules/rds"
 
@@ -95,8 +100,61 @@ module "rds" {
   monitoring_interval          = var.rds_monitoring_interval
   performance_insights_enabled = var.rds_performance_insights_enabled
   apply_immediately            = var.rds_apply_immediately
+  secret_recovery_window_days  = var.secret_recovery_window_days
+  app_remember_me_key          = random_password.remember_me_key.result
 
   tags = local.common_tags
+}
+
+# ---------------------------------------------------------------------------
+# App IRSA role - grants the AutoCare pod's ServiceAccount (via the Secrets
+# Store CSI Driver's AWS provider) read-only access to exactly one secret.
+# Role name matches the placeholder documented in the autocare-deployment
+# Helm chart's values.yaml: autocare-<env>-secrets-role.
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "app_secrets_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    principals {
+      type        = "Federated"
+      identifiers = [module.eks.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(module.eks.oidc_provider_url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:${var.app_namespace}:${var.app_service_account_name}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(module.eks.oidc_provider_url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "app_secrets" {
+  name               = "${var.project}-${var.environment}-secrets-role"
+  assume_role_policy = data.aws_iam_policy_document.app_secrets_assume.json
+
+  tags = local.common_tags
+}
+
+data "aws_iam_policy_document" "app_secrets_access" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = [module.rds.app_secret_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "app_secrets" {
+  name   = "${var.project}-${var.environment}-secrets-policy"
+  role   = aws_iam_role.app_secrets.id
+  policy = data.aws_iam_policy_document.app_secrets_access.json
 }
 
 module "ecr" {
@@ -129,4 +187,55 @@ module "monitoring" {
   flow_log_retention_days = var.log_retention_days
 
   tags = local.common_tags
+}
+
+# ---------------------------------------------------------------------------
+# SSM Parameter Store - non-secret runtime configuration published under
+# /autocare/<environment>/* so the Jenkins CI/CD pipelines in the
+# autocare-platform and autocare-deployment repos can discover everything
+# they need (cluster name, ECR URL, IAM role ARN, secret ARN) at build time
+# with a single `aws ssm get-parameters-by-path` call - no values are ever
+# copy-pasted between repos by hand.
+# ---------------------------------------------------------------------------
+
+resource "aws_ssm_parameter" "eks_cluster_name" {
+  name  = "/autocare/${var.environment}/eks_cluster_name"
+  type  = "String"
+  value = module.eks.cluster_name
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "ecr_repository_url" {
+  name  = "/autocare/${var.environment}/ecr_repository_url"
+  type  = "String"
+  value = module.ecr.repository_url
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "app_secret_arn" {
+  name  = "/autocare/${var.environment}/app_secret_arn"
+  type  = "String"
+  value = module.rds.app_secret_arn
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "app_irsa_role_arn" {
+  name  = "/autocare/${var.environment}/app_irsa_role_arn"
+  type  = "String"
+  value = aws_iam_role.app_secrets.arn
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "aws_region" {
+  name  = "/autocare/${var.environment}/aws_region"
+  type  = "String"
+  value = var.aws_region
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "namespace" {
+  name  = "/autocare/${var.environment}/namespace"
+  type  = "String"
+  value = var.app_namespace
+  tags  = local.common_tags
 }

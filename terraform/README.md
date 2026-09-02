@@ -43,15 +43,22 @@ created here yet.
   the load balancer created later by the AWS Load Balancer Controller.
 - RDS is **never publicly accessible** and only reachable from the EKS
   cluster/node security group on port 3306.
-- Database credentials are never stored in Terraform state or source control:
-  RDS's native `manage_master_user_password` feature stores and rotates the
-  master password in **AWS Secrets Manager** automatically.
+- Database credentials are never typed by a human or stored in source control:
+  Terraform generates the master password (`random_password`) and writes it,
+  together with the DB host/port/name and the app's remember-me signing key,
+  into a single **AWS Secrets Manager** secret (`autocare/<env>/database`).
+  This is a fixed cross-repo contract with the `autocare-deployment` Helm
+  chart's `SecretProviderClass` — see Section 8.
 
-This repository intentionally stops at the AWS foundation. The next stages
-(Kubernetes manifests / Helm charts for the AutoCare Deployment, Service,
-Ingress, and the Jenkins CI/CD server) are separate, later efforts that will
-consume the outputs of this Terraform (EKS cluster name, ECR repository URL,
-RDS endpoint and secret ARN, IRSA role ARNs).
+This repository also installs the cluster-level software the application
+needs (AWS Load Balancer Controller, Secrets Store CSI Driver + AWS
+provider, Metrics Server) via the Jenkins pipeline's post-apply stage, and
+publishes every value the other two repositories need (cluster name, ECR
+URL, secret ARN, IRSA role ARN) to **SSM Parameter Store** under
+`/autocare/<env>/*`, so nothing is ever copy-pasted between repositories by
+hand. What remains for later, separate repositories: the application source
+(`autocare-platform`) and its Helm chart / Jenkins deploy pipeline
+(`autocare-deployment`).
 
 ## 2. Folder structure
 
@@ -121,17 +128,20 @@ made once and rolled out to each environment on its own schedule.
 | `aws_eks_addon.*` | Managed add-ons: `vpc-cni` (pod networking), `kube-proxy`, `coredns` (in-cluster DNS), and `aws-ebs-csi-driver` (persistent volume support), all upgraded by AWS instead of hand-managed manifests. |
 
 > **Note on the AWS Load Balancer Controller itself:** this Terraform creates
-> the IAM policy and IRSA role it needs, but the controller add-on/Helm
-> release and Ingress resources belong to the Kubernetes manifests stage,
-> which is intentionally out of scope here.
+> the IAM policy and IRSA role it needs; the controller's Helm release itself
+> is installed by the Jenkins pipeline's "Install Cluster Add-ons" stage
+> (Section 8) right after `terraform apply` succeeds. Ingress resources
+> belong to the application's Helm chart (`autocare-deployment`).
 
 ### RDS module (`modules/rds`)
 | Resource | Purpose |
 |---|---|
 | `aws_db_subnet_group` | Pins RDS to the two private database subnets only. |
 | `aws_security_group.rds` | Ingress limited to TCP/3306 from the EKS cluster security group ID passed in — nothing else can reach the database. |
-| `aws_db_instance` | MySQL 8.0, `storage_encrypted = true`, Multi-AZ (configurable), automated backups with configurable retention, CloudWatch log exports (error/general/slowquery), Enhanced Monitoring, Performance Insights, and `manage_master_user_password = true` so the password lives only in AWS Secrets Manager. `deletion_protection` and `skip_final_snapshot` are both variables so dev can be torn down freely while prod is protected. |
+| `random_password.master` | Generates the master password — never typed by a human, never hard-coded. |
+| `aws_db_instance` | MySQL 8.0, `storage_encrypted = true`, Multi-AZ (configurable), automated backups with configurable retention, CloudWatch log exports (error/general/slowquery), Enhanced Monitoring, Performance Insights. `deletion_protection` and `skip_final_snapshot` are both variables so dev can be torn down freely while prod is protected. |
 | `aws_iam_role.rds_monitoring` | Lets RDS Enhanced Monitoring publish OS-level metrics to CloudWatch. |
+| `aws_secretsmanager_secret.app` + `_version` | The single secret `autocare/<env>/database`, containing `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USERNAME`/`DB_PASSWORD`/`REMEMBER_ME_KEY` — the exact shape the `autocare-deployment` Helm chart's `SecretProviderClass` expects. |
 
 ### ECR module (`modules/ecr`)
 | Resource | Purpose |
@@ -146,6 +156,17 @@ made once and rolled out to each environment on its own schedule.
 | `aws_sns_topic.alarms` | Single notification channel for infrastructure alarms; subscribe an email via `alarm_sns_email`. |
 | `aws_cloudwatch_metric_alarm.rds_*` | Alerts on RDS CPU, free storage, and connection count before they become incidents. |
 | `aws_cloudwatch_metric_alarm.nat_error_port_allocation` | Warns if a NAT Gateway is running out of ports (a common silent failure mode under load). |
+
+### Application glue (root of `environments/<env>/main.tf`)
+| Resource | Purpose |
+|---|---|
+| `random_password.remember_me_key` | Generates Spring Security's remember-me cookie signing key, bundled into the same app secret as the DB credentials. |
+| `aws_iam_role.app_secrets` | IRSA role named `autocare-<env>-secrets-role`, trusted only for `system:serviceaccount:autocare:autocare` — this is the exact ARN the Helm chart's `serviceAccount.annotations` must reference. |
+| `aws_ssm_parameter.*` | Publishes `eks_cluster_name`, `ecr_repository_url`, `app_secret_arn`, `app_irsa_role_arn`, `aws_region`, `namespace` under `/autocare/<env>/*` so the CI/CD pipelines in the other two repositories can read them at build time instead of having values pasted into their Jenkinsfiles or values files by hand. |
+
+This lives at the root instead of inside a module because it is the one
+piece of glue that genuinely depends on outputs from two different modules
+(`module.eks`'s OIDC provider and `module.rds`'s secret ARN).
 
 ### Bootstrap (`bootstrap/`)
 Creates the versioned, encrypted, public-access-blocked S3 bucket used as the
@@ -248,21 +269,26 @@ versions → `terraform fmt -check` → AWS identity check → `terraform init`
 skipped if not installed) → `terraform plan` → publish the plan as a build
 artifact → manual approval gate → `terraform apply` / `terraform destroy` →
 capture `terraform output -json` as an artifact → post-apply sanity check
-(`aws eks update-kubeconfig` + `kubectl get nodes`).
+(`aws eks update-kubeconfig` + `kubectl get nodes`) → **install cluster
+add-ons** (on `apply` only): AWS Load Balancer Controller, Secrets Store CSI
+Driver + its AWS provider, Metrics Server, and the `autocare` namespace —
+all via idempotent `helm upgrade --install` / `kubectl apply`, so the
+cluster is fully ready for the `autocare-deployment` Helm chart the moment
+this job finishes. No one ever runs `kubectl`/`helm` by hand.
 
 Before running it, configure in Jenkins:
 
 - **Credential `aws-autocare-creds`** — AWS credentials (access key/secret or
   an assumed role) scoped to what this Terraform needs (VPC/EKS/RDS/ECR/
-  IAM/CloudWatch/S3/SNS). This is the only place AWS access is granted; the
-  Jenkinsfile never contains credentials itself.
+  IAM/CloudWatch/S3/SNS/SSM). This is the only place AWS access is granted;
+  the Jenkinsfile never contains credentials itself.
 - **Credential `autocare-tf-state-bucket`** — a "Secret text" credential
   holding the `state_bucket_name` output from `terraform/bootstrap` (see
   Section 5). Not sensitive, but keeping it in Jenkins rather than the
   repository lets the same Jenkinsfile target different AWS accounts.
 - **Plugins**: Pipeline, Credentials Binding, AnsiColor.
-- **Agent tooling**: `terraform` (≥ 1.10.0), `aws-cli` v2, `kubectl`, and
-  optionally `tfsec`.
+- **Agent tooling**: `terraform` (≥ 1.10.0), `aws-cli` v2, `kubectl`, `helm`
+  v3, and optionally `tfsec`.
 
 Run it with the `ENVIRONMENT` (`dev`/`prod`) and `ACTION`
 (`plan`/`apply`/`destroy`) build parameters. `apply` and `destroy` both stop

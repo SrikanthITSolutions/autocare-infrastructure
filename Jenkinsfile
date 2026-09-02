@@ -24,9 +24,16 @@
 //                               (not sensitive, but kept out of source so
 //                               the same Jenkinsfile works in any account).
 //
-// Agent requirements: terraform (>= 1.10.0), aws-cli v2, kubectl. Optionally
-// tfsec for the security-scan stage (the pipeline skips it gracefully if
-// tfsec is not installed).
+// Agent requirements: terraform (>= 1.10.0), aws-cli v2, kubectl, helm v3.
+// Optionally tfsec for the security-scan stage (the pipeline skips it
+// gracefully if tfsec is not installed).
+//
+// After a successful apply, this pipeline also installs the cluster-level
+// software the autocare-deployment Helm chart depends on (AWS Load Balancer
+// Controller, Secrets Store CSI Driver + AWS provider, Metrics Server) via
+// helm/kubectl - so "terraform apply" plus this one Jenkins job is the
+// entire, no-manual-steps path from empty AWS account to an EKS cluster
+// ready for the application to be deployed onto.
 // ---------------------------------------------------------------------------
 
 pipeline {
@@ -250,6 +257,60 @@ pipeline {
                             CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
                             aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$CLUSTER_NAME"
                             kubectl get nodes
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Install Cluster Add-ons') {
+            // Installs the cluster-level software the AutoCare Helm chart
+            // (autocare-deployment repo) depends on. Idempotent - safe to
+            // re-run on every apply via `helm upgrade --install`.
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
+                    dir(env.TF_WORKING_DIR) {
+                        sh '''
+                            CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+                            VPC_ID=$(terraform output -raw vpc_id)
+                            ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn)
+                            NAMESPACE=$(terraform output -raw ssm_parameter_path | sed 's#.*/##')
+
+                            helm repo add eks https://aws.github.io/eks-charts
+                            helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+                            helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+                            helm repo update
+
+                            echo "==> AWS Load Balancer Controller"
+                            helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+                              --namespace kube-system \
+                              --set clusterName="${CLUSTER_NAME}" \
+                              --set region="${AWS_DEFAULT_REGION}" \
+                              --set vpcId="${VPC_ID}" \
+                              --set serviceAccount.create=true \
+                              --set serviceAccount.name=aws-load-balancer-controller \
+                              --set serviceAccount.annotations."eks\\.amazonaws\\.com/role-arn"="${ALB_ROLE_ARN}" \
+                              --wait --timeout 5m
+
+                            echo "==> Secrets Store CSI Driver"
+                            helm upgrade --install secrets-store-csi-driver secrets-store-csi-driver/secrets-store-csi-driver \
+                              --namespace kube-system \
+                              --set syncSecret.enabled=true \
+                              --wait --timeout 5m
+
+                            echo "==> Secrets Store CSI Driver - AWS provider (ASCP)"
+                            kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
+
+                            echo "==> Metrics Server (required for HPA)"
+                            helm upgrade --install metrics-server metrics-server/metrics-server \
+                              --namespace kube-system \
+                              --wait --timeout 5m
+
+                            echo "==> Application namespace"
+                            kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
                         '''
                     }
                 }

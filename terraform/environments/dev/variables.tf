@@ -236,6 +236,28 @@ variable "rds_apply_immediately" {
   default     = true
 }
 
+variable "secret_recovery_window_days" {
+  description = "AWS Secrets Manager recovery window (days) before a deleted secret is purged"
+  type        = number
+  default     = 0
+}
+
+# ---------------------------------------------------------------------------
+# Application (cross-repo contract with autocare-deployment's Helm chart)
+# ---------------------------------------------------------------------------
+
+variable "app_namespace" {
+  description = "Kubernetes namespace the AutoCare application is deployed into"
+  type        = string
+  default     = "autocare"
+}
+
+variable "app_service_account_name" {
+  description = "Kubernetes ServiceAccount name used by the AutoCare pods (must match the Helm chart's serviceAccount.name)"
+  type        = string
+  default     = "autocare"
+}
+
 # ---------------------------------------------------------------------------
 # ECR
 # ---------------------------------------------------------------------------

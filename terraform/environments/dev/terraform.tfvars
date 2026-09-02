@@ -45,6 +45,7 @@ rds_skip_final_snapshot          = true
 rds_monitoring_interval          = 60
 rds_performance_insights_enabled = true
 rds_apply_immediately            = true
+secret_recovery_window_days      = 0
 
 # ---------------------------------------------------------------------------
 # ECR
@@ -54,6 +55,12 @@ ecr_image_tag_mutability       = "IMMUTABLE"
 ecr_scan_on_push               = true
 ecr_max_tagged_image_count     = 10
 ecr_untagged_image_expiry_days = 7
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+app_namespace            = "autocare"
+app_service_account_name = "autocare"
 
 # ---------------------------------------------------------------------------
 # Monitoring

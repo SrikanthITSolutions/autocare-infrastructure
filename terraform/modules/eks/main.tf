@@ -30,6 +30,15 @@ resource "aws_eks_cluster" "this" {
     public_access_cidrs     = var.public_access_cidrs
   }
 
+  # Guarantees whichever IAM principal runs `terraform apply` (e.g. the
+  # Jenkins pipeline's role) is automatically granted cluster-admin, so the
+  # same pipeline can run kubectl/helm immediately after `terraform apply`
+  # with no manual aws-auth ConfigMap editing.
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   enabled_cluster_log_types = [
     "api",
     "audit",
