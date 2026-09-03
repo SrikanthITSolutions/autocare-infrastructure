@@ -262,6 +262,69 @@ pipeline {
             }
         }
 
+        stage('Cleanup Cluster-Created Load Balancers') {
+            // The AWS Load Balancer Controller creates ALBs/NLBs, target groups,
+            // and security groups directly against the AWS API in response to
+            // Ingress objects - Terraform never knows these exist, so
+            // `terraform destroy` gets stuck with DependencyViolation errors on
+            // the subnets/IGW they're still attached to (confirmed live: a
+            // destroy failed exactly this way after deploying the app).
+            // Deleting them here first, before Terraform ever touches the VPC,
+            // means destroy always succeeds with no manual cleanup required.
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
+                    dir(env.TF_WORKING_DIR) {
+                        sh '''
+                            CLUSTER_NAME=$(terraform output -raw eks_cluster_name 2>/dev/null || true)
+                            VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || true)
+                            if [ -z "$CLUSTER_NAME" ] || [ -z "$VPC_ID" ]; then
+                                echo "No eks_cluster_name/vpc_id output found (nothing deployed yet?) - skipping load balancer cleanup"
+                                exit 0
+                            fi
+
+                            echo "Looking for load balancers tagged for cluster $CLUSTER_NAME"
+                            LB_ARNS=$(aws resourcegroupstaggingapi get-resources \
+                                --resource-type-filters elasticloadbalancing:loadbalancer \
+                                --tag-filters "Key=elbv2.k8s.aws/cluster,Values=$CLUSTER_NAME" \
+                                --query "ResourceTagMappingList[].ResourceARN" --output text)
+
+                            if [ -n "$LB_ARNS" ]; then
+                                for ARN in $LB_ARNS; do
+                                    echo "Deleting load balancer $ARN"
+                                    aws elbv2 delete-load-balancer --load-balancer-arn "$ARN"
+                                done
+
+                                echo "Waiting for load balancer ENIs in $VPC_ID to detach..."
+                                for i in $(seq 1 30); do
+                                    REMAINING=$(aws ec2 describe-network-interfaces \
+                                        --filters "Name=vpc-id,Values=$VPC_ID" "Name=description,Values=ELB*" \
+                                        --query "length(NetworkInterfaces)" --output text)
+                                    [ "$REMAINING" = "0" ] && break
+                                    sleep 6
+                                done
+                            else
+                                echo "No load balancers found for this cluster"
+                            fi
+
+                            echo "Looking for security groups tagged for cluster $CLUSTER_NAME"
+                            SG_IDS=$(aws resourcegroupstaggingapi get-resources \
+                                --resource-type-filters ec2:security-group \
+                                --tag-filters "Key=elbv2.k8s.aws/cluster,Values=$CLUSTER_NAME" \
+                                --query "ResourceTagMappingList[].ResourceARN" --output text | sed "s#.*/##")
+
+                            for SG in $SG_IDS; do
+                                echo "Deleting security group $SG"
+                                aws ec2 delete-security-group --group-id "$SG" || echo "Could not delete $SG yet - terraform destroy will report if it's still blocking"
+                            done
+                        '''
+                    }
+                }
+            }
+        }
+
         stage('Terraform Destroy') {
             when {
                 expression { params.ACTION == 'destroy' }
