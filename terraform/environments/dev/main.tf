@@ -102,6 +102,7 @@ module "rds" {
   apply_immediately            = var.rds_apply_immediately
   secret_recovery_window_days  = var.secret_recovery_window_days
   app_remember_me_key          = random_password.remember_me_key.result
+  log_retention_days           = var.log_retention_days
 
   tags = local.common_tags
 }

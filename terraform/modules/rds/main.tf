@@ -98,11 +98,35 @@ resource "aws_iam_role_policy_attachment" "rds_monitoring" {
 }
 
 # ---------------------------------------------------------------------------
+# CloudWatch log groups for RDS log exports.
+#
+# AWS auto-creates these log groups the first time RDS writes to them if
+# they don't already exist - but it never deletes them when the DB
+# instance is destroyed, leaving orphans after every `terraform destroy`.
+# Creating them here (and making the DB instance depend on them, so they
+# exist before RDS ever needs to write to them) makes Terraform the owner,
+# so they get cleaned up automatically along with everything else.
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "rds" {
+  for_each = toset(["error", "general", "slowquery"])
+
+  name              = "/aws/rds/instance/${local.name}-mysql/${each.key}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(var.tags, {
+    Name = "${local.name}-mysql-${each.key}-logs"
+  })
+}
+
+# ---------------------------------------------------------------------------
 # RDS MySQL instance
 # ---------------------------------------------------------------------------
 
 resource "aws_db_instance" "this" {
   identifier = "${local.name}-mysql"
+
+  depends_on = [aws_cloudwatch_log_group.rds]
 
   engine         = "mysql"
   engine_version = var.engine_version

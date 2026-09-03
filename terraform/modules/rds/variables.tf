@@ -131,6 +131,12 @@ variable "app_remember_me_key" {
   sensitive   = true
 }
 
+variable "log_retention_days" {
+  description = "CloudWatch Logs retention period (days) for the RDS error/general/slowquery log exports"
+  type        = number
+  default     = 30
+}
+
 variable "tags" {
   description = "Common tags applied to all resources"
   type        = map(string)
