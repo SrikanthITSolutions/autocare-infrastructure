@@ -280,9 +280,11 @@ pipeline {
                 expression { params.ACTION == 'apply' }
             }
             steps {
-                dir(env.TF_WORKING_DIR) {
-                    sh 'terraform output -json > tf-outputs.json'
-                    archiveArtifacts artifacts: 'tf-outputs.json', fingerprint: true
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-autocare-creds']]) {
+                    dir(env.TF_WORKING_DIR) {
+                        sh 'terraform output -json > tf-outputs.json'
+                        archiveArtifacts artifacts: 'tf-outputs.json', fingerprint: true
+                    }
                 }
             }
         }
