@@ -42,7 +42,7 @@ rds_backup_retention_period      = 1 # AWS Free Tier / restricted-plan accounts 
 rds_deletion_protection          = false
 rds_skip_final_snapshot          = true
 rds_monitoring_interval          = 60
-rds_performance_insights_enabled = true
+rds_performance_insights_enabled = false # db.t3.micro doesn't support Performance Insights
 rds_apply_immediately            = true
 secret_recovery_window_days      = 0
 
