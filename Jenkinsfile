@@ -339,9 +339,16 @@ pipeline {
                               --wait --timeout 5m
 
                             echo "==> Secrets Store CSI Driver"
+                            # tokenRequests[0].audience registers the CSIDriver object so
+                            # kubelet projects an IRSA-audience service account token into
+                            # each pod's CSI mount - without it, every pod using the CSI
+                            # volume fails to mount with "CSI token error: serviceAccount.tokens
+                            # not provided", since there's no other way for the AWS provider to
+                            # authenticate as the pod's own IAM role.
                             helm upgrade --install secrets-store-csi-driver secrets-store-csi-driver/secrets-store-csi-driver \
                               --namespace kube-system \
                               --set syncSecret.enabled=true \
+                              --set 'tokenRequests[0].audience=sts.amazonaws.com' \
                               --wait --timeout 5m
 
                             echo "==> Secrets Store CSI Driver - AWS provider (ASCP)"
