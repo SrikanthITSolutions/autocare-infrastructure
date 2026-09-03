@@ -320,7 +320,7 @@ pipeline {
                             CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
                             VPC_ID=$(terraform output -raw vpc_id)
                             ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn)
-                            NAMESPACE=$(terraform output -raw ssm_parameter_path | sed 's#.*/##')
+                            NAMESPACE=$(terraform output -raw app_namespace)
 
                             helm repo add eks https://aws.github.io/eks-charts
                             helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts

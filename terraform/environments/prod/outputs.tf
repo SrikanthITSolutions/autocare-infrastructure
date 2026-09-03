@@ -88,3 +88,8 @@ output "ssm_parameter_path" {
   description = "SSM Parameter Store path prefix under which all cross-repo runtime configuration for this environment is published"
   value       = "/autocare/${var.environment}"
 }
+
+output "app_namespace" {
+  description = "Kubernetes namespace the AutoCare application is deployed into"
+  value       = var.app_namespace
+}
